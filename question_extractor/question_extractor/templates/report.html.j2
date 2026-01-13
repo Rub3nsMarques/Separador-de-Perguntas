@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relatório de Extração - {{ doc_source_id }}</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; color: #1f2937; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        header { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h1 { margin: 0; font-size: 1.5rem; color: #111827; }
+        .meta { color: #6b7280; font-size: 0.875rem; margin-top: 5px; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .stat-card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .stat-val { font-size: 1.5rem; font-weight: bold; color: #3b82f6; }
+        .stat-label { font-size: 0.875rem; color: #6b7280; }
+
+        .filters { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
+        .search-box { padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; flex-grow: 1; }
+        
+        .question-list { display: flex; flex-direction: column; gap: 10px; }
+        .q-card { background: white; padding: 15px; border-radius: 6px; border-left: 4px solid #e5e7eb; transition: transform 0.1s; }
+        .q-card:hover { transform: translateY(-1px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        
+        .q-card[data-status="extracted"] { border-left-color: #10b981; }
+        .q-card[data-status="needs_review"] { border-left-color: #f59e0b; }
+        .q-card[data-status="error"] { border-left-color: #ef4444; }
+
+        .q-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .q-id { font-weight: bold; font-family: monospace; }
+        .badge { padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 500; }
+        .badge-extracted { background: #d1fae5; color: #065f46; }
+        .badge-error { background: #fee2e2; color: #991b1b; }
+
+        .links { display: flex; gap: 10px; margin-top: 10px; }
+        .link-btn { text-decoration: none; padding: 4px 12px; border-radius: 4px; font-size: 0.875rem; background: #eff6ff; color: #1d4ed8; }
+        .link-btn:hover { background: #dbeafe; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Relatório de Extração: {{ doc_source_id }}</h1>
+            <div class="meta">Processado em: {{ timestamp }} | Total: {{ stats.total }} questões</div>
+        </header>
+
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-val">{{ stats.extracted }}</div><div class="stat-label">Sucesso</div></div>
+            <div class="stat-card"><div class="stat-val">{{ stats.error }}</div><div class="stat-label">Erros</div></div>
+            <div class="stat-card"><div class="stat-val">{{ throughput }}</div><div class="stat-label">Questões/Min</div></div>
+        </div>
+
+        <div class="filters">
+            <div style="display:flex; gap:10px; align-items:center;">
+                <label style="font-weight:bold;">Filtrar:</label>
+                <label><input type="checkbox" checked onchange="app.render()" value="extracted"> Sucesso</label>
+                <label><input type="checkbox" checked onchange="app.render()" value="needs_review"> Revisão</label>
+                <label><input type="checkbox" checked onchange="app.render()" value="error"> Erros</label>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center; margin-left:auto;">
+                 <label style="font-weight:bold;">Ordenar:</label>
+                 <select id="sortOrder" onchange="app.render()">
+                     <option value="id_asc">ID (Crescente)</option>
+                     <option value="id_desc">ID (Decrescente)</option>
+                     <option value="conf_asc">Confiança (Menor -> Maior)</option>
+                     <option value="conf_desc">Confiança (Maior -> Menor)</option>
+                 </select>
+            </div>
+        </div>
+        
+        <div class="filters" style="margin-top:-10px; background:none; padding-left:0;">
+             <input type="text" id="searchInput" class="search-box" placeholder="Buscar texto ou ID..." onkeyup="app.render()">
+             <div class="links">
+                 <button onclick="app.quickFilter('needs_review')" class="link-btn">Apenas Revisão</button>
+                 <button onclick="app.quickFilter('error')" class="link-btn" style="color:#b91c1c; background:#fecaca;">Apenas Erros</button>
+                 <button onclick="app.resetFilters()" class="link-btn" style="color:#374151; background:#e5e7eb;">Resetar</button>
+             </div>
+        </div>
+
+        <div class="question-list" id="qList">
+            {% for q in questions %}
+            <!-- Add hidden data for JS sorting/filtering -->
+            <div class="q-card" 
+                 data-id="{{ q.question_id }}" 
+                 data-status="{{ q.status }}" 
+                 data-confidence="{{ q.confidence|default(100) }}"
+                 data-search="{{ q.question_id }} {{ q.status }} {{ q.error|default('') }}">
+                 
+                <div class="q-header">
+                    <div>
+                        <span class="q-id">{{ q.question_id }}</span>
+                        <span style="font-size:0.8rem; color:#6b7280; margin-left:10px;">Conf: {{ q.confidence|default(100) }}%</span>
+                    </div>
+                    <span class="badge badge-{{ q.status }}">{{ q.status }}</span>
+                </div>
+                
+                {% if q.error %}
+                <div style="color: #ef4444; font-size: 0.875rem; margin-bottom: 10px; background:#fef2f2; padding:8px; border-radius:4px;">
+                    <strong>Erro:</strong> {{ q.error }}
+                </div>
+                {% endif %}
+                
+                <div class="links">
+                    {% if q.files.question %}
+                    <a href="{{ q.files.question }}" class="link-btn">Pergunta.docx</a>
+                    {% endif %}
+                    {% for key, path in q.files.items() %}
+                        {% if key != 'question' %}
+                        <a href="{{ path }}" class="link-btn">Alt {{ key }}</a>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <script>
+        const app = {
+            init() {
+                this.cards = Array.from(document.querySelectorAll('.q-card'));
+                this.container = document.getElementById('qList');
+                this.render();
+            },
+
+            getFilters() {
+                const checkboxes = document.querySelectorAll('.filters input[type="checkbox"]');
+                return Array.from(checkboxes).filter(c => c.checked).map(c => c.value);
+            },
+
+            render() {
+                const search = document.getElementById('searchInput').value.toLowerCase();
+                const activeStatuses = this.getFilters();
+                const sortMode = document.getElementById('sortOrder').value;
+
+                // Filter
+                let visibleCards = this.cards.filter(card => {
+                    const status = card.getAttribute('data-status');
+                    const text = card.getAttribute('data-search').toLowerCase();
+                    return activeStatuses.includes(status) && text.includes(search);
+                });
+
+                // Sort
+                visibleCards.sort((a, b) => {
+                    const idA = a.getAttribute('data-id');
+                    const idB = b.getAttribute('data-id');
+                    const confA = parseInt(a.getAttribute('data-confidence'));
+                    const confB = parseInt(b.getAttribute('data-confidence'));
+
+                    if (sortMode === 'id_asc') return idA.localeCompare(idB);
+                    if (sortMode === 'id_desc') return idB.localeCompare(idA);
+                    if (sortMode === 'conf_asc') return confA - confB;
+                    if (sortMode === 'conf_desc') return confB - confA;
+                    return 0;
+                });
+
+                // Render (DOM manipulation)
+                this.container.innerHTML = "";
+                visibleCards.forEach(card => this.container.appendChild(card));
+                
+                // Update stats if needed (optional)
+            },
+            
+            quickFilter(status) {
+                document.querySelectorAll('.filters input[type="checkbox"]').forEach(c => {
+                    c.checked = (c.value === status);
+                });
+                this.render();
+            },
+            
+            resetFilters() {
+                 document.querySelectorAll('.filters input[type="checkbox"]').forEach(c => c.checked = true);
+                 document.getElementById('searchInput').value = "";
+                 document.getElementById('sortOrder').value = "id_asc";
+                 this.render();
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', () => app.init());
+    </script>
+</body>
+</html>

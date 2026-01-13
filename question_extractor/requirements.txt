@@ -1,0 +1,10 @@
+typer[all]
+psycopg[binary,pool]
+pydantic-settings
+lxml
+jinja2
+structlog
+tenacity
+redis
+celery
+python-dotenv
